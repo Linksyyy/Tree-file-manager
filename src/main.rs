@@ -6,6 +6,7 @@ use ratatui::{
     DefaultTerminal, Frame,
     buffer::Buffer,
     layout::Rect,
+    style::Stylize,
     symbols::border,
     text::{Line, Text},
     widgets::{Block, Paragraph, Widget},
@@ -62,7 +63,17 @@ impl App {
 
 impl Widget for &App {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let block = Block::bordered().border_set(border::THICK);
+        let title = Line::from(" tree-view ".bold()).centered();
+        let instructions = Line::from(vec![
+            " Reload ".into(),
+            "<R>".blue().bold(),
+            " Quit ".into(),
+            "<Q>".blue().bold(),
+        ]);
+        let block = Block::bordered()
+            .border_set(border::THICK)
+            .title(title)
+            .title_bottom(instructions);
 
         let dirs = Text::from(
             self.actual_dirs
