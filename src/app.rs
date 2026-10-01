@@ -349,6 +349,7 @@ impl App {
         let path = node.path.clone();
         match Command::new("xdg-open").arg(&path).spawn() {
             Ok(_) => {
+                self.should_quit = true;
                 self.status = Some(format!("Opening {}", path.display()));
             }
             Err(error) => {
@@ -667,10 +668,12 @@ mod tests {
 
         app.handle_key(key(KeyCode::Char('l')));
         assert_eq!(app.status.as_deref(), Some(expected_status.as_str()));
+        assert!(app.should_quit);
 
         app.status = None;
         app.handle_key(key(KeyCode::Enter));
         assert_eq!(app.status.as_deref(), Some(expected_status.as_str()));
+        assert!(app.should_quit);
 
         fs::remove_dir_all(root).expect("test tree must be removed");
     }
