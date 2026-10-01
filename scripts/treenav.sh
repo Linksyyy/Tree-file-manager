@@ -5,7 +5,6 @@ treenav() {
     local script_dir
     local binary
     local cwd_file
-
     script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)" || return
     if [[ -x "$script_dir/target/debug/tree-view" ]]; then
         binary="$script_dir/target/debug/tree-view"

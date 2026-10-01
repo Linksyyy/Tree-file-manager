@@ -25,14 +25,31 @@ pub struct App {
 
 impl App {
     pub fn new(root_path: PathBuf) -> io::Result<Self> {
-        let root = FileNode::from_directory(root_path)?;
-        let root_directory = root.path.clone();
+        Self::new_with_context(root_path.clone(), root_path)
+    }
+
+    fn new_with_context(root_path: PathBuf, current_directory: PathBuf) -> io::Result<Self> {
+        let mut root = FileNode::from_directory(root_path)?;
+        if current_directory != root.path {
+            let Some(current_node) = root.find_mut(&current_directory) else {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("Could not load {}", current_directory.display()),
+                ));
+            };
+            current_node.expand()?;
+        }
         let selected_path = root
-            .children
-            .iter()
-            .find(|child| !child.name.starts_with('.'))
-            .map(|child| child.path.clone())
-            .unwrap_or_else(|| root.path.clone());
+            .find(&current_directory)
+            .map(|directory| {
+                directory
+                    .children
+                    .iter()
+                    .find(|child| !child.name.starts_with('.'))
+                    .map(|child| child.path.clone())
+                    .unwrap_or_else(|| current_directory.clone())
+            })
+            .unwrap_or_else(|| current_directory.clone());
         let mut app = Self {
             root,
             selected_path,
@@ -43,7 +60,7 @@ impl App {
             info_modal: None,
             show_hidden: false,
             delete_armed: false,
-            current_directory: root_directory,
+            current_directory,
             directory_history: Vec::new(),
         };
         app.load_preview_children();
@@ -243,7 +260,25 @@ impl App {
 
     fn select_parent(&mut self) {
         if self.current_directory == self.root.path {
-            self.selected_path = self.root.path.clone();
+            let current_directory = self.current_directory.clone();
+            let Some(parent_directory) = current_directory.parent().map(Path::to_path_buf) else {
+                self.selected_path = self.root.path.clone();
+                return;
+            };
+
+            match FileNode::from_directory(parent_directory.clone()) {
+                Ok(root) => {
+                    self.root = root;
+                    self.current_directory = parent_directory;
+                    self.selected_path = current_directory;
+                    self.directory_history.clear();
+                    self.load_preview_children();
+                    self.status = Some(format!("Returned to {}", self.current_directory.display()));
+                }
+                Err(error) => {
+                    self.status = Some(format!("Could not read parent directory: {error}"));
+                }
+            }
             return;
         }
         let leaving_directory = self.current_directory.clone();
@@ -559,6 +594,46 @@ mod tests {
         assert_eq!(app.exit_path(), root);
 
         fs::remove_dir_all(root).expect("test tree must be removed");
+    }
+
+    #[test]
+    fn h_lazily_loads_each_parent_directory() {
+        let parent = std::env::temp_dir().join(format!(
+            "treenav-parent-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock must be after epoch")
+                .as_nanos()
+        ));
+        let launch_directory = parent.join("project");
+        fs::create_dir_all(launch_directory.join("src")).expect("test tree must be created");
+
+        let mut app = App::new(launch_directory.clone()).expect("app must load launch tree");
+        assert_eq!(app.exit_path(), launch_directory);
+        assert_eq!(app.selected_path, launch_directory.join("src"));
+        assert_eq!(app.root.path, launch_directory);
+
+        app.handle_key(key(KeyCode::Char('h')));
+        assert_eq!(app.exit_path(), parent);
+        assert_eq!(app.selected_path, launch_directory);
+        assert_eq!(app.root.path, parent);
+
+        let (columns, _, _) = app.build_columns();
+        assert_eq!(columns.len(), 1);
+        assert!(
+            columns[0]
+                .entries
+                .iter()
+                .any(|entry| entry.name == "project")
+        );
+
+        let grandparent = parent.parent().expect("temporary directory has a parent");
+        app.handle_key(key(KeyCode::Char('h')));
+        assert_eq!(app.exit_path(), grandparent);
+        assert_eq!(app.selected_path, parent);
+        assert_eq!(app.root.path, grandparent);
+
+        fs::remove_dir_all(parent).expect("test tree must be removed");
     }
 
     #[test]

@@ -6,7 +6,6 @@ treenav() {
     local destination
     local binary
     local cwd_file
-
     if [[ -x "$TREENAV_SCRIPT_DIR/target/debug/tree-view" ]]; then
         binary="$TREENAV_SCRIPT_DIR/target/debug/tree-view"
     elif [[ -x "$TREENAV_SCRIPT_DIR/target/release/tree-view" ]]; then
