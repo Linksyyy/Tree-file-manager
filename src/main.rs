@@ -26,7 +26,7 @@ fn main() -> Result<()> {
     result?;
     exit_result?;
 
-    if let Some(path_file) = std::env::var_os("TREENAV_CWD_FILE") {
+    if let Some(path_file) = std::env::var_os("KD_CWD_FILE") {
         std::fs::write(
             path_file,
             app.exit_path().as_os_str().to_string_lossy().as_bytes(),

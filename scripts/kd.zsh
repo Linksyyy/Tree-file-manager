@@ -1,8 +1,10 @@
+#!/usr/bin/env zsh
+
 # Load this file from zsh with:
-#   source /absolute/path/to/tree-dir/scripts/treenav.zsh
+#   source /absolute/path/to/tree-dir/scripts/kd.zsh
 typeset -g KD_SCRIPT_DIR="${${(%):-%x}:A:h:h}"
 
- kd() {
+kd() {
     local destination
     local binary
     local cwd_file

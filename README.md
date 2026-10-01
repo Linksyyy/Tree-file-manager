@@ -40,6 +40,10 @@ source /absolute/path/to/tree-dir/scripts/kd.zsh
 kd
 ```
 
+Do not run `./scripts/kd.zsh` directly. The file defines a `kd` function,
+and only a function loaded into the current shell can change that shell's
+working directory.
+
 To configure it permanently in Zsh:
 
 ```zsh
