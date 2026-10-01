@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
 use crate::app::App;
@@ -79,6 +79,13 @@ pub fn render(app: &mut App, frame: &mut Frame) {
             ),
             Span::styled("reload  ", Style::default().fg(Color::DarkGray)),
             Span::styled(
+                "i ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("info  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
                 ". ",
                 Style::default()
                     .fg(Color::Cyan)
@@ -100,6 +107,53 @@ pub fn render(app: &mut App, frame: &mut Frame) {
         ]),
     ];
     frame.render_widget(Paragraph::new(footer), footer_area);
+
+    if let Some(info) = &app.info_modal {
+        draw_info_modal(frame, info);
+    }
+}
+
+fn draw_info_modal(frame: &mut Frame, info: &[(String, String)]) {
+    let area = frame.area();
+    let width = area.width.saturating_sub(4).min(76);
+    let height = (info.len() as u16 + 3).min(area.height.saturating_sub(2));
+    let modal_area = Rect {
+        x: area.x + 2,
+        y: area.y + 1,
+        width,
+        height,
+    };
+    let lines = info
+        .iter()
+        .map(|(label, value)| {
+            Line::from(vec![
+                Span::styled(
+                    format!("{label:<10}"),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(value, Style::default().fg(Color::White)),
+            ])
+        })
+        .collect::<Vec<_>>();
+    let panel = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .title(Span::styled(
+                    " File information ",
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+                .style(Style::default().bg(Color::Rgb(20, 28, 40))),
+        )
+        .wrap(Wrap { trim: false });
+    frame.render_widget(Clear, modal_area);
+    frame.render_widget(panel, modal_area);
 }
 
 fn draw_columns(app: &App, frame: &mut Frame, area: Rect, layout: &ColumnLayout) {

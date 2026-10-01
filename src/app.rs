@@ -16,6 +16,7 @@ pub struct App {
     pub viewport: Rect,
     pub should_quit: bool,
     pub status: Option<String>,
+    pub info_modal: Option<Vec<(String, String)>>,
     pub show_hidden: bool,
     delete_armed: bool,
     current_directory: PathBuf,
@@ -39,6 +40,7 @@ impl App {
             viewport: Rect::default(),
             should_quit: false,
             status: None,
+            info_modal: None,
             show_hidden: false,
             delete_armed: false,
             current_directory: root_directory,
@@ -49,6 +51,10 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
+        if self.info_modal.is_some() {
+            self.info_modal = None;
+            return;
+        }
         self.status = None;
         if !matches!(key.code, KeyCode::Char('d')) {
             self.delete_armed = false;
@@ -62,6 +68,7 @@ impl App {
             KeyCode::Char('h') | KeyCode::Char('H') | KeyCode::Backspace => self.select_parent(),
             KeyCode::Char('d') => self.delete_selected(),
             KeyCode::Char('r') => self.reload_current_directory(),
+            KeyCode::Char('i') => self.show_selected_info(),
             KeyCode::Char('.') => {
                 self.show_hidden = !self.show_hidden;
                 self.ensure_selection_visible();
@@ -259,6 +266,64 @@ impl App {
             && let Err(error) = node.load_children()
         {
             self.status = Some(format!("Could not load preview: {error}"));
+        }
+    }
+
+    fn show_selected_info(&mut self) {
+        let Some(node) = self.selected_node() else {
+            self.status = Some("No item is selected".to_string());
+            return;
+        };
+
+        let metadata = match std::fs::metadata(&node.path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                self.status = Some(format!("Could not read file information: {error}"));
+                return;
+            }
+        };
+        let item_type = if node.node_type == NodeType::Directory {
+            "directory"
+        } else {
+            "file"
+        };
+        let size = if node.node_type == NodeType::Directory {
+            "n/a".to_string()
+        } else {
+            Self::format_bytes(metadata.len())
+        };
+        let modified = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| format!("{}s since epoch", duration.as_secs()))
+            .unwrap_or_else(|| "unavailable".to_string());
+
+        self.info_modal = Some(vec![
+            ("Name".to_string(), node.name.clone()),
+            ("Path".to_string(), node.path.display().to_string()),
+            ("Type".to_string(), item_type.to_string()),
+            ("Size".to_string(), size),
+            (
+                "Read-only".to_string(),
+                metadata.permissions().readonly().to_string(),
+            ),
+            ("Modified".to_string(), modified),
+        ]);
+    }
+
+    fn format_bytes(bytes: u64) -> String {
+        const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
+        let mut value = bytes as f64;
+        let mut unit = 0;
+        while value >= 1024.0 && unit < UNITS.len() - 1 {
+            value /= 1024.0;
+            unit += 1;
+        }
+        if unit == 0 {
+            format!("{bytes} {}", UNITS[unit])
+        } else {
+            format!("{value:.1} {}", UNITS[unit])
         }
     }
 
@@ -514,6 +579,41 @@ mod tests {
         app.handle_key(key(KeyCode::Char('q')));
         assert!(app.should_quit);
         assert_eq!(app.exit_path(), root.join("repo"));
+
+        fs::remove_dir_all(root).expect("test tree must be removed");
+    }
+
+    #[test]
+    fn i_shows_information_for_the_selected_file() {
+        let root = std::env::temp_dir().join(format!(
+            "treenav-file-info-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock must be after epoch")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("test tree must be created");
+        let file = root.join("notes.txt");
+        fs::write(&file, "hello").expect("test file must be created");
+
+        let mut app = App::new(root.clone()).expect("app must load test tree");
+        app.handle_key(key(KeyCode::Char('i')));
+        let info = app.info_modal.as_ref().expect("info modal must be shown");
+        assert!(
+            info.iter()
+                .any(|(label, value)| label == "Name" && value == "notes.txt")
+        );
+        assert!(
+            info.iter()
+                .any(|(label, value)| label == "Type" && value == "file")
+        );
+        assert!(
+            info.iter()
+                .any(|(label, value)| label == "Size" && value == "5 B")
+        );
+
+        app.handle_key(key(KeyCode::Char('j')));
+        assert!(app.info_modal.is_none());
 
         fs::remove_dir_all(root).expect("test tree must be removed");
     }
