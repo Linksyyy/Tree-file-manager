@@ -6,7 +6,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 
 use crate::filesystem::{FileNode, NodeType};
-use crate::layout::{Column, ColumnEntry, ColumnLayout, make_column};
+use crate::layout::{Column, ColumnEntry, ColumnLayout, SearchMatch, make_column};
 
 #[derive(Debug)]
 pub struct App {
@@ -17,8 +17,12 @@ pub struct App {
     pub should_quit: bool,
     pub status: Option<String>,
     pub info_modal: Option<Vec<(String, String)>>,
+    pub search_mode: bool,
+    pub search_query: String,
     pub show_hidden: bool,
     delete_armed: bool,
+    search_matches: Vec<PathBuf>,
+    search_index: usize,
     current_directory: PathBuf,
     directory_history: Vec<PathBuf>,
 }
@@ -58,8 +62,12 @@ impl App {
             should_quit: false,
             status: None,
             info_modal: None,
+            search_mode: false,
+            search_query: String::new(),
             show_hidden: false,
             delete_armed: false,
+            search_matches: Vec::new(),
+            search_index: 0,
             current_directory,
             directory_history: Vec::new(),
         };
@@ -70,6 +78,10 @@ impl App {
     pub fn handle_key(&mut self, key: KeyEvent) {
         if self.info_modal.is_some() {
             self.info_modal = None;
+            return;
+        }
+        if self.search_mode {
+            self.handle_search_key(key);
             return;
         }
         self.status = None;
@@ -86,6 +98,13 @@ impl App {
             KeyCode::Char('d') => self.delete_selected(),
             KeyCode::Char('r') => self.reload_current_directory(),
             KeyCode::Char('i') => self.show_selected_info(),
+            KeyCode::Char('/') => {
+                self.search_mode = true;
+                self.search_query.clear();
+                self.refresh_search();
+            }
+            KeyCode::Char('n') => self.next_search_match(1),
+            KeyCode::Char('N') => self.next_search_match(-1),
             KeyCode::Char('.') => {
                 self.show_hidden = !self.show_hidden;
                 self.ensure_selection_visible();
@@ -135,6 +154,7 @@ impl App {
                         node_type: directory.node_type,
                         expanded: directory.expanded,
                         selected: true,
+                        search_match: SearchMatch::None,
                     }],
                     0,
                 ));
@@ -152,6 +172,7 @@ impl App {
                     node_type: child.node_type,
                     expanded: child.expanded,
                     selected: selected_child_path.as_ref() == Some(&child.path),
+                    search_match: self.search_match_for(&child.path),
                 })
                 .collect::<Vec<_>>();
             let selected_row = entries.iter().position(|entry| entry.selected).unwrap_or(0);
@@ -174,11 +195,88 @@ impl App {
                         node_type: child.node_type,
                         expanded: child.expanded,
                         selected: false,
+                        search_match: SearchMatch::None,
                     })
                     .collect()
             })
             .unwrap_or_default();
         (columns, focus_column, preview)
+    }
+
+    fn handle_search_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Enter => self.search_mode = false,
+            KeyCode::Backspace => {
+                self.search_query.pop();
+                self.refresh_search();
+            }
+            KeyCode::Char(character) => {
+                self.search_query.push(character);
+                self.refresh_search();
+            }
+            _ => {}
+        }
+    }
+
+    fn refresh_search(&mut self) {
+        self.search_matches = self
+            .root
+            .find(&self.current_directory)
+            .map(|directory| {
+                let query = self.search_query.to_lowercase();
+                directory
+                    .children
+                    .iter()
+                    .filter(|child| {
+                        !query.is_empty()
+                            && (self.show_hidden || !child.name.starts_with('.'))
+                            && child.name.to_lowercase().contains(&query)
+                    })
+                    .map(|child| child.path.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.search_index = 0;
+        if let Some(path) = self.search_matches.first() {
+            self.selected_path = path.clone();
+            self.load_preview_children();
+        }
+    }
+
+    fn clear_search(&mut self) {
+        self.search_mode = false;
+        self.search_query.clear();
+        self.search_matches.clear();
+        self.search_index = 0;
+    }
+
+    fn next_search_match(&mut self, direction: i32) {
+        if self.search_matches.is_empty() {
+            return;
+        }
+        let count = self.search_matches.len();
+        self.search_index = if direction > 0 {
+            (self.search_index + 1) % count
+        } else {
+            (self.search_index + count - 1) % count
+        };
+        self.selected_path = self.search_matches[self.search_index].clone();
+        self.load_preview_children();
+    }
+
+    fn search_match_for(&self, path: &Path) -> SearchMatch {
+        if self.search_matches.is_empty()
+            || !self
+                .search_matches
+                .iter()
+                .any(|match_path| match_path == path)
+        {
+            SearchMatch::None
+        } else if self.selected_path == path {
+            SearchMatch::Current
+        } else {
+            SearchMatch::Other
+        }
     }
 
     fn move_in_column(&mut self, direction: i32) {
@@ -234,6 +332,7 @@ impl App {
         self.directory_history.push(self.current_directory.clone());
         self.current_directory = path;
         self.selected_path = child_path.unwrap_or_else(|| self.current_directory.clone());
+        self.clear_search();
         self.load_preview_children();
     }
 
@@ -272,6 +371,7 @@ impl App {
                     self.current_directory = parent_directory;
                     self.selected_path = current_directory;
                     self.directory_history.clear();
+                    self.clear_search();
                     self.load_preview_children();
                     self.status = Some(format!("Returned to {}", self.current_directory.display()));
                 }
@@ -288,6 +388,7 @@ impl App {
             .or_else(|| leaving_directory.parent().map(Path::to_path_buf))
             .unwrap_or_else(|| self.root.path.clone());
         self.selected_path = leaving_directory;
+        self.clear_search();
         self.load_preview_children();
         self.status = Some(format!("Returned to {}", self.selected_path.display()));
     }
@@ -689,6 +790,36 @@ mod tests {
 
         app.handle_key(key(KeyCode::Char('j')));
         assert!(app.info_modal.is_none());
+
+        fs::remove_dir_all(root).expect("test tree must be removed");
+    }
+
+    #[test]
+    fn slash_searches_incrementally_and_n_cycles_matches() {
+        let root = std::env::temp_dir().join(format!(
+            "treenav-search-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock must be after epoch")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("test tree must be created");
+        fs::write(root.join("apple.txt"), "a").expect("test file must be created");
+        fs::write(root.join("apricot.txt"), "b").expect("test file must be created");
+        fs::write(root.join("banana.txt"), "c").expect("test file must be created");
+
+        let mut app = App::new(root.clone()).expect("app must load test tree");
+        app.handle_key(key(KeyCode::Char('/')));
+        app.handle_key(key(KeyCode::Char('a')));
+        app.handle_key(key(KeyCode::Char('p')));
+        assert!(app.search_mode);
+        assert_eq!(app.selected_path, root.join("apple.txt"));
+
+        app.handle_key(key(KeyCode::Enter));
+        app.handle_key(key(KeyCode::Char('n')));
+        assert_eq!(app.selected_path, root.join("apricot.txt"));
+        app.handle_key(key(KeyCode::Char('N')));
+        assert_eq!(app.selected_path, root.join("apple.txt"));
 
         fs::remove_dir_all(root).expect("test tree must be removed");
     }

@@ -8,7 +8,7 @@ use ratatui::{
 
 use crate::app::App;
 use crate::filesystem::NodeType;
-use crate::layout::{ColumnLayout, connector_cells};
+use crate::layout::{ColumnLayout, SearchMatch, connector_cells};
 
 pub fn render(app: &mut App, frame: &mut Frame) {
     let [tree_area, footer_area] =
@@ -36,8 +36,12 @@ pub fn render(app: &mut App, frame: &mut Frame) {
         draw_columns(app, frame, canvas, layout);
     }
 
-    let status = app.status.as_deref().unwrap_or("Ready");
-    let status_style = if app.status.is_some() {
+    let status = if app.search_mode {
+        format!("/{}", app.search_query)
+    } else {
+        app.status.as_deref().unwrap_or("Ready").to_string()
+    };
+    let status_style = if app.search_mode || app.status.is_some() {
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD)
@@ -85,6 +89,20 @@ pub fn render(app: &mut App, frame: &mut Frame) {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled("info  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "/ ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("search  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "n/N ",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("next/prev  ", Style::default().fg(Color::DarkGray)),
             Span::styled(
                 ". ",
                 Style::default()
@@ -205,6 +223,10 @@ fn draw_entry(
         Style::default()
             .fg(Color::Black)
             .bg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else if entry.search_match == SearchMatch::Other {
+        Style::default()
+            .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD)
     } else {
         match entry.node_type {

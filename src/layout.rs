@@ -10,6 +10,14 @@ pub struct ColumnEntry {
     pub node_type: NodeType,
     pub expanded: bool,
     pub selected: bool,
+    pub search_match: SearchMatch,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchMatch {
+    None,
+    Current,
+    Other,
 }
 
 #[derive(Debug, Clone)]
