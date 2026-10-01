@@ -1,5 +1,5 @@
 [package]
-name = "tree-dir"
+name = "tree-view"
 version = "0.1.0"
 description = "An example generated using the hello-world template"
 authors = ["Linksyyy <enzovidero@gmail.com>"]
