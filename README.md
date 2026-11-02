@@ -30,6 +30,21 @@ To configure it permanently in Bash:
 echo 'source /absolute/path/to/tree-dir/scripts/kd.sh' >> ~/.bashrc
 ```
 
+## Fish
+
+Load the Fish wrapper and run the `kd` function:
+
+```fish
+source /absolute/path/to/tree-dir/scripts/kd.fish
+kd
+```
+
+To configure it permanently in Fish:
+
+```fish
+echo 'source /absolute/path/to/tree-dir/scripts/kd.fish' >> ~/.config/fish/config.fish
+```
+
 ## Zsh
 
 The Bash wrapper uses `${BASH_SOURCE[0]}`, so it should not be loaded in Zsh.
