@@ -6,6 +6,26 @@ loads the next parent. Select an entry with `j`/`k`, use `l` to enter it, and
 then use `q` to quit there; pressing `q` while merely selecting a directory
 does not enter it.
 
+All keyboard bindings are stored in `config.toml`. The default navigation uses
+Vim keys: `h`/`j`/`k`/`l`. Edit the values to use arrows or WASD:
+
+```toml
+up = "k"
+down = "j"
+left = "h"
+right = "l"
+```
+
+The configuration is reloaded automatically when a key is pressed, so changes
+take effect without recompiling or restarting the program.
+
+When running the program from another directory, use
+`~/.config/tree-view/config.toml` or set `TREE_VIEW_CONFIG` to the desired file.
+Arrow names (`up`, `down`, `left`, `right`) and special names (`enter`, `esc`,
+`backspace`) are accepted as values. Every action must be configured, and no
+two actions may use the same key. The commented WASD example uses `x` for
+delete because `d` is needed for right movement.
+
 To make `q` leave the shell in the selected destination, source the wrapper and
 use the `kd` function instead of invoking the binary directly:
 

@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use crate::app::App;
+use crate::config::Action;
 use crate::filesystem::NodeType;
 use crate::layout::{ColumnLayout, SearchMatch, connector_cells};
 
@@ -55,21 +56,25 @@ pub fn render(app: &mut App, frame: &mut Frame) {
         ]),
         Line::from(vec![
             Span::styled(
-                " j/k ",
+                format!(
+                    " {}/{} ",
+                    app.key_bindings.label(Action::Down),
+                    app.key_bindings.label(Action::Up)
+                ),
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled("move  ", Style::default().fg(Color::DarkGray)),
             Span::styled(
-                "l ",
+                format!(" {} ", app.key_bindings.label(Action::Right)),
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled("enter  ", Style::default().fg(Color::DarkGray)),
             Span::styled(
-                "h ",
+                format!(" {} ", app.key_bindings.label(Action::Left)),
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),

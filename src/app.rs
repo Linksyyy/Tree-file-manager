@@ -5,6 +5,7 @@ use std::process::Command;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 
+use crate::config::{Action, KeyBindings};
 use crate::filesystem::{FileNode, NodeType};
 use crate::layout::{Column, ColumnEntry, ColumnLayout, SearchMatch, make_column};
 
@@ -25,6 +26,7 @@ pub struct App {
     search_index: usize,
     current_directory: PathBuf,
     directory_history: Vec<PathBuf>,
+    pub(crate) key_bindings: KeyBindings,
 }
 
 impl App {
@@ -33,6 +35,7 @@ impl App {
     }
 
     fn new_with_context(root_path: PathBuf, current_directory: PathBuf) -> io::Result<Self> {
+        let key_bindings = KeyBindings::load()?;
         let mut root = FileNode::from_directory(root_path)?;
         if current_directory != root.path {
             let Some(current_node) = root.find_mut(&current_directory) else {
@@ -70,6 +73,7 @@ impl App {
             search_index: 0,
             current_directory,
             directory_history: Vec::new(),
+            key_bindings,
         };
         app.load_preview_children();
         Ok(app)
@@ -85,33 +89,67 @@ impl App {
             return;
         }
         self.status = None;
-        if !matches!(key.code, KeyCode::Char('d')) {
+        if let Err(error) = self.reload_key_bindings() {
+            self.status = Some(format!("Could not load config.toml: {error}"));
+            return;
+        }
+        if !self.key_bindings.matches(Action::Delete, key.code) {
             self.delete_armed = false;
         }
-        match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
-            KeyCode::Char('j') => self.move_in_column(1),
-            KeyCode::Char('k') => self.move_in_column(-1),
-            KeyCode::Char('l') => self.open_selected(),
-            KeyCode::Char('o') | KeyCode::Enter => self.open_selected(),
-            KeyCode::Char('h') | KeyCode::Char('H') | KeyCode::Backspace => self.select_parent(),
-            KeyCode::Char('d') => self.delete_selected(),
-            KeyCode::Char('r') => self.reload_current_directory(),
-            KeyCode::Char('i') => self.show_selected_info(),
-            KeyCode::Char('/') => {
-                self.search_mode = true;
-                self.search_query.clear();
-                self.refresh_search();
-            }
-            KeyCode::Char('n') => self.next_search_match(1),
-            KeyCode::Char('N') => self.next_search_match(-1),
-            KeyCode::Char('.') => {
-                self.show_hidden = !self.show_hidden;
-                self.ensure_selection_visible();
-                self.load_preview_children();
-            }
-            _ => {}
+        if self.key_bindings.matches(Action::Delete, key.code) {
+            self.delete_selected();
+            return;
         }
+        if self.key_bindings.matches(Action::Up, key.code) {
+            self.move_in_column(-1);
+            return;
+        }
+        if self.key_bindings.matches(Action::Down, key.code) {
+            self.move_in_column(1);
+            return;
+        }
+        if self.key_bindings.matches(Action::Left, key.code) {
+            self.select_parent();
+            return;
+        }
+        if self.key_bindings.matches(Action::Right, key.code) {
+            self.open_selected();
+            return;
+        }
+        if self.key_bindings.matches(Action::Quit, key.code)
+            || self.key_bindings.matches(Action::Cancel, key.code)
+        {
+            self.should_quit = true;
+        } else if self.key_bindings.matches(Action::Open, key.code)
+            || self.key_bindings.matches(Action::Confirm, key.code)
+        {
+            self.open_selected();
+        } else if self.key_bindings.matches(Action::Parent, key.code)
+            || self.key_bindings.matches(Action::Backspace, key.code)
+        {
+            self.select_parent();
+        } else if self.key_bindings.matches(Action::Reload, key.code) {
+            self.reload_current_directory();
+        } else if self.key_bindings.matches(Action::Info, key.code) {
+            self.show_selected_info();
+        } else if self.key_bindings.matches(Action::Search, key.code) {
+            self.search_mode = true;
+            self.search_query.clear();
+            self.refresh_search();
+        } else if self.key_bindings.matches(Action::NextSearch, key.code) {
+            self.next_search_match(1);
+        } else if self.key_bindings.matches(Action::PreviousSearch, key.code) {
+            self.next_search_match(-1);
+        } else if self.key_bindings.matches(Action::Hidden, key.code) {
+            self.show_hidden = !self.show_hidden;
+            self.ensure_selection_visible();
+            self.load_preview_children();
+        }
+    }
+
+    fn reload_key_bindings(&mut self) -> io::Result<()> {
+        self.key_bindings = KeyBindings::load()?;
+        Ok(())
     }
 
     pub fn prepare_layout(&mut self, area: Rect) {
@@ -204,17 +242,16 @@ impl App {
     }
 
     fn handle_search_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc | KeyCode::Enter => self.search_mode = false,
-            KeyCode::Backspace => {
-                self.search_query.pop();
-                self.refresh_search();
-            }
-            KeyCode::Char(character) => {
-                self.search_query.push(character);
-                self.refresh_search();
-            }
-            _ => {}
+        if self.key_bindings.matches(Action::Cancel, key.code)
+            || self.key_bindings.matches(Action::Confirm, key.code)
+        {
+            self.search_mode = false;
+        } else if self.key_bindings.matches(Action::Backspace, key.code) {
+            self.search_query.pop();
+            self.refresh_search();
+        } else if let KeyCode::Char(character) = key.code {
+            self.search_query.push(character);
+            self.refresh_search();
         }
     }
 
@@ -581,9 +618,14 @@ mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
     use super::App;
+    use crate::config::Action;
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Press)
+    }
+
+    fn action_key(app: &App, action: Action) -> KeyEvent {
+        key(app.key_bindings.key(action))
     }
 
     #[test]
@@ -599,16 +641,16 @@ mod tests {
         fs::create_dir_all(&nested).expect("test tree must be created");
 
         let mut app = App::new(root.clone()).expect("app must load test tree");
-        app.handle_key(key(KeyCode::Char('l')));
-        app.handle_key(key(KeyCode::Char('l')));
-        app.handle_key(key(KeyCode::Char('l')));
+        app.handle_key(action_key(&app, Action::Right));
+        app.handle_key(action_key(&app, Action::Right));
+        app.handle_key(action_key(&app, Action::Right));
         assert_eq!(app.selected_path, nested);
 
-        app.handle_key(key(KeyCode::Char('h')));
+        app.handle_key(action_key(&app, Action::Left));
         assert_eq!(app.selected_path, nested);
-        app.handle_key(key(KeyCode::Char('h')));
+        app.handle_key(action_key(&app, Action::Left));
         assert_eq!(app.selected_path, root.join("a").join("b"));
-        app.handle_key(key(KeyCode::Char('h')));
+        app.handle_key(action_key(&app, Action::Left));
         assert_eq!(app.selected_path, root.join("a"));
 
         fs::remove_dir_all(root).expect("test tree must be removed");
@@ -630,20 +672,20 @@ mod tests {
         let mut app = App::new(root.clone()).expect("app must load test tree");
         assert_eq!(app.selected_path, root.join("a"));
 
-        app.handle_key(key(KeyCode::Char('j')));
+        app.handle_key(action_key(&app, Action::Down));
         assert_eq!(app.selected_path, root.join("b"));
-        app.handle_key(key(KeyCode::Char('k')));
+        app.handle_key(action_key(&app, Action::Up));
         assert_eq!(app.selected_path, root.join("a"));
 
-        app.handle_key(key(KeyCode::Char('l')));
+        app.handle_key(action_key(&app, Action::Right));
         assert_eq!(app.selected_path, root.join("a").join("a1"));
-        app.handle_key(key(KeyCode::Char('j')));
+        app.handle_key(action_key(&app, Action::Down));
         assert_eq!(app.selected_path, root.join("a").join("a2"));
-        app.handle_key(key(KeyCode::Char('k')));
+        app.handle_key(action_key(&app, Action::Up));
         assert_eq!(app.selected_path, root.join("a").join("a1"));
-        app.handle_key(key(KeyCode::Char('h')));
+        app.handle_key(action_key(&app, Action::Left));
         assert_eq!(app.selected_path, root.join("a"));
-        app.handle_key(key(KeyCode::Char('j')));
+        app.handle_key(action_key(&app, Action::Down));
         assert_eq!(app.selected_path, root.join("b"));
 
         fs::remove_dir_all(root).expect("test tree must be removed");
@@ -666,7 +708,7 @@ mod tests {
         assert_eq!(app.selected_path, file);
         let expected_status = format!("Opening {}", file.display());
 
-        app.handle_key(key(KeyCode::Char('l')));
+        app.handle_key(action_key(&app, Action::Open));
         assert_eq!(app.status.as_deref(), Some(expected_status.as_str()));
         assert!(app.should_quit);
 
@@ -752,10 +794,10 @@ mod tests {
         fs::create_dir_all(root.join("repo")).expect("test tree must be created");
 
         let mut app = App::new(root.clone()).expect("app must load test tree");
-        app.handle_key(key(KeyCode::Char('l')));
+        app.handle_key(action_key(&app, Action::Open));
         assert_eq!(app.exit_path(), root.join("repo"));
 
-        app.handle_key(key(KeyCode::Char('q')));
+        app.handle_key(action_key(&app, Action::Quit));
         assert!(app.should_quit);
         assert_eq!(app.exit_path(), root.join("repo"));
 
